@@ -6,7 +6,7 @@ import { getStyles } from "./styles";
 import { icons } from "./icons";
 
 const MAX_HISTORY_LENGTH = 100;
-const MAX_FOLLOWUP_DEPTH = 3;
+const MAX_FOLLOWUP_DEPTH = 8;
 const STORAGE_KEY_PREFIX = "iw_";
 const MAX_ERROR_MESSAGE_LENGTH = 200;
 const MAX_INPUT_LENGTH = 4000;
@@ -524,7 +524,17 @@ export class InsightsWidgetElement extends HTMLElement {
 
       const history = this.messages
         .filter((m) => !m.isStreaming && m.content)
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => {
+          // Reconstruct goal tag if present so AI sees it in history
+          let content = m.content;
+          if (m.goal) {
+            const goalTag = `<goal description="${m.goal.description}" status="${m.goal.status}">\n`
+              + m.goal.steps.map((s) => `  <step status="${s.status}">${s.description}</step>`).join("\n")
+              + `\n</goal>`;
+            content = `${goalTag}\n${content}`;
+          }
+          return { role: m.role, content };
+        });
 
       const response = await this.api.sendMessage(prompt, history, pageContext, this.abortController.signal);
 
@@ -614,15 +624,39 @@ export class InsightsWidgetElement extends HTMLElement {
         ? ` Available site routes: ${newContext.routes.slice(0, 50).map((r) => `${r.path}${r.label ? ` (${r.label})` : ""}`).join(", ")}.`
         : "";
 
+      // Find the last active goal from conversation history
+      const activeGoal = this.findActiveGoal();
+
+      // Build the goal context for the follow-up
+      let goalContext = "";
+      if (activeGoal) {
+        goalContext = `\nONGOING GOAL: You are in the middle of a multi-step task. Your previous response started this goal:
+<goal description="${activeGoal.description}" status="in_progress">
+${activeGoal.steps.map((s) => `  <step status="${s.status}">${s.description}</step>`).join("\n")}
+</goal>
+The page has now loaded. Look at the interactive elements below and EXECUTE the NEXT step. Do NOT instruct the user — actually perform the action using an <action> tag. Update the <goal> tag to mark the completed step and set the next step as active.`;
+      }
+
       const followUp = `[SYSTEM: Page navigated. Current URL: ${newContext.url}, Title: "${newContext.title}". `
         + `Visible text content: ${(newContext.textContent || "").slice(0, 2000)}. `
         + `Interactive elements: ${JSON.stringify(newContext.elements.slice(0, 30))}.`
         + `${routesInfo}`
-        + ` Please process this page data and provide the answer to the user's original request: "${originalPrompt.slice(0, 500)}"]`;
+        + `${goalContext}`
+        + `${!goalContext ? ` Execute the user's original request: "${originalPrompt.slice(0, 500)}". Create a <goal> tag and start executing actions.` : ""}]`;
 
       const history = this.messages
         .filter((m) => !m.isStreaming && m.content)
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => {
+          // Reconstruct goal tag if present so AI sees it in history
+          let content = m.content;
+          if (m.goal) {
+            const goalTag = `<goal description="${m.goal.description}" status="${m.goal.status}">\n`
+              + m.goal.steps.map((s) => `  <step status="${s.status}">${s.description}</step>`).join("\n")
+              + `\n</goal>`;
+            content = `${goalTag}\n${content}`;
+          }
+          return { role: m.role, content };
+        });
 
       const response = await this.api.sendMessage(followUp, history, newContext, this.abortController.signal);
 
@@ -694,6 +728,20 @@ export class InsightsWidgetElement extends HTMLElement {
   }
 
   // ─── Helpers ───
+
+  /**
+   * Find the last active (in_progress) goal from conversation history.
+   * Used to continue multi-step tasks after navigation.
+   */
+  private findActiveGoal(): import("./types").GoalState | undefined {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const msg = this.messages[i];
+      if (msg.goal && msg.goal.status === "in_progress") {
+        return msg.goal;
+      }
+    }
+    return undefined;
+  }
 
   private updatePanel(): void {
     if (!this.panelEl || !this.fabEl) return;
