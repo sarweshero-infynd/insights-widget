@@ -630,11 +630,14 @@ export class InsightsWidgetElement extends HTMLElement {
       // Build the goal context for the follow-up
       let goalContext = "";
       if (activeGoal) {
-        goalContext = `\nONGOING GOAL: You are in the middle of a multi-step task. Your previous response started this goal:
+        const nextStep = activeGoal.steps.find((s) => s.status === "active" || s.status === "pending");
+        goalContext = `\nONGOING GOAL — CONTINUE EXECUTING:
 <goal description="${activeGoal.description}" status="in_progress">
 ${activeGoal.steps.map((s) => `  <step status="${s.status}">${s.description}</step>`).join("\n")}
 </goal>
-The page has now loaded. Look at the interactive elements below and EXECUTE the NEXT step. Do NOT instruct the user — actually perform the action using an <action> tag. Update the <goal> tag to mark the completed step and set the next step as active.`;
+The page has loaded. You MUST now output an <action> tag to execute the next step: "${nextStep?.description || "next step"}".
+Look at the interactive elements below, find the right selector, and output the <action> tag.
+DO NOT just describe what you will do — actually output the <action> tag.`;
       }
 
       const followUp = `[SYSTEM: Page navigated. Current URL: ${newContext.url}, Title: "${newContext.title}". `
@@ -642,7 +645,7 @@ The page has now loaded. Look at the interactive elements below and EXECUTE the 
         + `Interactive elements: ${JSON.stringify(newContext.elements.slice(0, 30))}.`
         + `${routesInfo}`
         + `${goalContext}`
-        + `${!goalContext ? ` Execute the user's original request: "${originalPrompt.slice(0, 500)}". Create a <goal> tag and start executing actions.` : ""}]`;
+        + `${!goalContext ? ` The user asked: "${originalPrompt.slice(0, 500)}". Create a <goal> tag AND output an <action> tag to start executing.` : ""}]`;
 
       const history = this.messages
         .filter((m) => !m.isStreaming && m.content)
