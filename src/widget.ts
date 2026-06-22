@@ -39,6 +39,7 @@ export class InsightsWidgetElement extends HTMLElement {
   private followUpDepth = 0;
   private lastMessageTime = 0;
   private currentTheme: "light" | "dark" = "light";
+  private boundKeyHandler?: (e: KeyboardEvent) => void;
 
   private panelEl?: HTMLDivElement;
   private messagesEl?: HTMLDivElement;
@@ -54,7 +55,21 @@ export class InsightsWidgetElement extends HTMLElement {
   }
 
   connectedCallback(): void {
-    this.readConfig();
+    try {
+      this.readConfig();
+    } catch {
+      this.config = {
+        apiUrl: "",
+        apiKey: "",
+        agentId: "",
+        theme: "light",
+        position: "bottom-right",
+        title: "AI Assistant",
+        subtitle: "Insights & Actions",
+        suggestions: DEFAULT_SUGGESTIONS,
+      };
+      this.currentTheme = "light";
+    }
     debugLog(this.config, "Connected", { apiUrl: this.config.apiUrl, agentId: this.config.agentId });
     this.api = new ApiClient(this.config.apiUrl, this.config.apiKey, this.config.agentId);
     this.dom.setWidgetHost(this);
@@ -62,6 +77,14 @@ export class InsightsWidgetElement extends HTMLElement {
     this.loadHistory();
     this.render();
     this.dom.startObserving(() => {});
+
+    this.boundKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && this.isOpen) {
+        this.isOpen = false;
+        this.updatePanel();
+      }
+    };
+    document.addEventListener("keydown", this.boundKeyHandler);
 
     if (!this.api.isValid()) {
       debugLog(this.config, "Invalid configuration detected");
@@ -79,6 +102,10 @@ export class InsightsWidgetElement extends HTMLElement {
     this.abortController?.abort();
     this.abortController = null;
     this.followUpDepth = 0;
+    if (this.boundKeyHandler) {
+      document.removeEventListener("keydown", this.boundKeyHandler);
+      this.boundKeyHandler = undefined;
+    }
   }
 
   // ─── Configuration ───
@@ -254,12 +281,6 @@ export class InsightsWidgetElement extends HTMLElement {
       });
     }
 
-    document.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Escape" && this.isOpen) {
-        this.isOpen = false;
-        this.updatePanel();
-      }
-    });
     if (this.sendBtnEl) {
       this.sendBtnEl.addEventListener("click", () => this.handleSend());
     }
@@ -559,6 +580,7 @@ export class InsightsWidgetElement extends HTMLElement {
       const error = err as Error;
       if (error.name !== "AbortError") {
         const errorMsg = truncate(error.message || "Unknown error", MAX_ERROR_MESSAGE_LENGTH);
+        this.isChatting = false;
         this.messages.push({
           role: "assistant",
           content: `Could not process page data: ${errorMsg}`,

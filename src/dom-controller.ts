@@ -119,6 +119,20 @@ export class DomController {
       elements.push(entry);
     });
 
+    // Set data-iw-text attributes for text-based selector matching
+    document.querySelectorAll(selector).forEach((el) => {
+      const htmlEl = el as HTMLElement;
+      if (this.widgetShadowHost && this.widgetShadowHost.contains(htmlEl)) return;
+      if (!isVisible(htmlEl)) return;
+      const text = getElementText(htmlEl).slice(0, 40);
+      if (text && !htmlEl.querySelector("*")) {
+        const tag = htmlEl.tagName.toLowerCase();
+        if (tag === "button" || tag === "a" || htmlEl.getAttribute("role") === "button") {
+          htmlEl.setAttribute("data-iw-text", text);
+        }
+      }
+    });
+
     // Also harvest some visible text content for richer context
     const textContent = harvestTextContent(this.widgetShadowHost);
 
@@ -190,6 +204,7 @@ function isVisible(el: HTMLElement): boolean {
     if (rect.width === 0 && rect.height === 0) return false;
     const style = window.getComputedStyle(el);
     if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+    if (rect.bottom < 0 || rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
     return true;
   } catch (e) {
     return false;
@@ -234,7 +249,8 @@ function buildSelector(el: HTMLElement): string {
   const text = getElementText(el).slice(0, 40);
   if (text && !el.querySelector("*")) {
     if (tag === "button" || tag === "a" || el.getAttribute("role") === "button") {
-      parts.push(`:has-text("${text.replace(/"/g, '\\"')}")`);
+      const safeText = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      parts.push(`[data-iw-text="${safeText}"]`);
     }
   }
 
@@ -462,7 +478,14 @@ function findMatchingLink(path: string): HTMLAnchorElement | null {
  */
 function findElement(selector?: string, text?: string): HTMLElement | null {
   if (selector) {
-    // Handle custom :has-text pseudo-selector (allows single or double quotes)
+    // Handle data-iw-text attribute selector (text-based matching)
+    const textAttrMatch = selector.match(/\[data-iw-text="(.+?)"\]/);
+    if (textAttrMatch) {
+      const baseSelector = selector.replace(/\[data-iw-text=".+?"\]/, "").trim();
+      return findByText(textAttrMatch[1], baseSelector || undefined);
+    }
+
+    // Handle legacy :has-text() pseudo-selector
     const textMatch = selector.match(/:has-text\((?:["']?)(.*?)(?:["']?)\)/);
     if (textMatch) {
       const baseSelector = selector.replace(/:has-text\(.+?\)/, "").trim();

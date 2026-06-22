@@ -5,7 +5,9 @@
   "type": "module",
   "main": "dist/insights-widget.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
@@ -27,7 +29,7 @@
   "homepage": "https://github.com/sarweshero-infynd/insights-widget#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sarweshero-infynd/insights-widget.git"
+    "url": "git+https://github.com/sarweshero-infynd/insights-widget.git"
   },
   "bugs": {
     "url": "https://github.com/sarweshero-infynd/insights-widget/issues"

@@ -32,7 +32,7 @@ export class ApiClient {
   }
 
   isValid(): boolean {
-    return validateUrl(this.apiUrl) && this.agentId.length > 0;
+    return validateUrl(this.apiUrl) && this.apiKey.length > 0 && this.agentId.length > 0;
   }
 
   async sendMessage(
