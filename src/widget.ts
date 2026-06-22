@@ -40,6 +40,8 @@ export class InsightsWidgetElement extends HTMLElement {
   private lastMessageTime = 0;
   private currentTheme: "light" | "dark" = "light";
   private boundKeyHandler?: (e: KeyboardEvent) => void;
+  private renderVersion = 0;
+  private historyLoaded = false;
 
   private panelEl?: HTMLDivElement;
   private messagesEl?: HTMLDivElement;
@@ -75,7 +77,6 @@ export class InsightsWidgetElement extends HTMLElement {
     this.dom.setWidgetHost(this);
     this.dom.setAgentId(this.config.agentId);
     this.dom.setMaxElements(this.config.maxContextElements || 50);
-    this.loadHistory();
     this.render();
     this.dom.startObserving(() => {});
 
@@ -100,6 +101,7 @@ export class InsightsWidgetElement extends HTMLElement {
 
   disconnectedCallback(): void {
     this.dom.stopObserving();
+    this.dom.cleanupHostDom();
     this.abortController?.abort();
     this.abortController = null;
     this.followUpDepth = 0;
@@ -146,6 +148,7 @@ export class InsightsWidgetElement extends HTMLElement {
     
     if (this.config.apiUrl && this.config.apiKey && this.config.agentId && this.api) {
       this.api.setConfig(this.config.apiUrl, this.config.apiKey, this.config.agentId);
+      this.dom.setAgentId(this.config.agentId);
 
       // Clear the stale "configuration incomplete" message that may have been
       // added during connectedCallback before configure() was called.
@@ -155,6 +158,13 @@ export class InsightsWidgetElement extends HTMLElement {
     }
     if (opts.suggestions) this.config.suggestions = opts.suggestions;
     if (opts.maxContextElements) this.dom.setMaxElements(opts.maxContextElements);
+
+    // Load history after config is set so we use the correct storage key.
+    // Only load if messages are empty AND we haven't loaded yet this session.
+    if (this.messages.length === 0 && !this.historyLoaded) {
+      this.loadHistory();
+      this.historyLoaded = true;
+    }
     this.render();
   }
 
@@ -165,7 +175,9 @@ export class InsightsWidgetElement extends HTMLElement {
     this.messages = [];
     this.saveHistory();
     this.abortController?.abort();
+    this.abortController = null;
     this.isChatting = false;
+    this.followUpDepth = 0;
     this.renderMessages();
   }
 
@@ -456,6 +468,8 @@ export class InsightsWidgetElement extends HTMLElement {
     this.isChatting = true;
     this.renderMessages();
 
+    const localVersion = ++this.renderVersion;
+
     try {
       this.abortController = new AbortController();
       debugLog(this.config, "Sending message", { prompt: prompt.slice(0, 100), historyLength: this.messages.length });
@@ -468,6 +482,8 @@ export class InsightsWidgetElement extends HTMLElement {
         .map((m) => ({ role: m.role, content: m.content }));
 
       const response = await this.api.sendMessage(prompt, history, pageContext, this.abortController.signal);
+
+      if (localVersion !== this.renderVersion) return;
       debugLog(this.config, "Response received", { hasContent: !!response.reply, hasThinking: !!response.thinking });
 
       const { actions, steps, goal, cleanContent } = parseActionTags(response.reply || "");
@@ -489,25 +505,33 @@ export class InsightsWidgetElement extends HTMLElement {
       this.saveHistory();
 
       if (actions.length > 0) {
+        // Save history BEFORE executing actions in case navigation destroys the page
+        this.saveHistory();
         const msgIdx = this.messages.length - 1;
         await this.dom.executeActions(actions, (updatedSteps) => {
-          this.messages[msgIdx].browserActions = updatedSteps;
-          this.renderMessages();
+          if (localVersion !== this.renderVersion) return;
+          if (msgIdx < this.messages.length) {
+            this.messages[msgIdx].browserActions = updatedSteps;
+            this.renderMessages();
+          }
         });
         this.saveHistory();
+
+        if (localVersion !== this.renderVersion) return;
 
         const hasNavigation = actions.some((a) => a.action === "navigate" || a.action === "read_page");
         const isGoalActive = goal && goal.status === "in_progress";
         
         if ((hasNavigation || isGoalActive) && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
           this.followUpDepth++;
-          await this.followUpWithPageData(prompt);
+          await this.followUpWithPageData(prompt, localVersion);
         }
       } else if (goal && goal.status === "in_progress" && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
         this.followUpDepth++;
-        await this.followUpWithPageData(prompt);
+        await this.followUpWithPageData(prompt, localVersion);
       }
     } catch (err: unknown) {
+      if (localVersion !== this.renderVersion) return;
       const error = err as Error;
       if (error.name === "AbortError") return;
       const errorMsg = truncate(error.message || "Unknown error", MAX_ERROR_MESSAGE_LENGTH);
@@ -518,9 +542,11 @@ export class InsightsWidgetElement extends HTMLElement {
       });
       this.saveHistory();
     } finally {
-      this.abortController = null;
-      this.isChatting = false;
-      this.renderMessages();
+      if (localVersion === this.renderVersion) {
+        this.abortController = null;
+        this.isChatting = false;
+        this.renderMessages();
+      }
     }
   }
 
@@ -528,7 +554,7 @@ export class InsightsWidgetElement extends HTMLElement {
    * After navigation/read_page, re-harvest the new page's DOM and send it
    * back to the agent so it can process the data and answer the user's question.
    */
-  private async followUpWithPageData(originalPrompt: string): Promise<void> {
+  private async followUpWithPageData(originalPrompt: string, localVersion: number): Promise<void> {
     this.isChatting = true;
     this.renderMessages();
 
@@ -537,21 +563,25 @@ export class InsightsWidgetElement extends HTMLElement {
 
       const newContext = this.dom.harvestPageContext();
 
+      if (localVersion !== this.renderVersion) return;
+
       const routesInfo = newContext.routes?.length
-        ? ` Available site routes: ${newContext.routes.map((r) => `${r.path}${r.label ? ` (${r.label})` : ""}`).join(", ")}.`
+        ? ` Available site routes: ${newContext.routes.slice(0, 50).map((r) => `${r.path}${r.label ? ` (${r.label})` : ""}`).join(", ")}.`
         : "";
 
       const followUp = `[SYSTEM: Page navigated. Current URL: ${newContext.url}, Title: "${newContext.title}". `
         + `Visible text content: ${(newContext.textContent || "").slice(0, 2000)}. `
         + `Interactive elements: ${JSON.stringify(newContext.elements.slice(0, 30))}.`
         + `${routesInfo}`
-        + ` Please process this page data and provide the answer to the user's original request: "${originalPrompt}"]`;
+        + ` Please process this page data and provide the answer to the user's original request: "${originalPrompt.slice(0, 500)}"]`;
 
       const history = this.messages
         .filter((m) => !m.isStreaming && m.content)
         .map((m) => ({ role: m.role, content: m.content }));
 
       const response = await this.api.sendMessage(followUp, history, newContext, this.abortController.signal);
+
+      if (localVersion !== this.renderVersion) return;
 
       const { actions: newActions, steps: newSteps, goal, cleanContent } = parseActionTags(response.reply || "");
 
@@ -570,25 +600,33 @@ export class InsightsWidgetElement extends HTMLElement {
       this.saveHistory();
 
       if (newActions.length > 0) {
+        // Save history BEFORE executing actions in case navigation destroys the page
+        this.saveHistory();
         const msgIdx = this.messages.length - 1;
         await this.dom.executeActions(newActions, (updatedSteps) => {
-          this.messages[msgIdx].browserActions = updatedSteps;
-          this.renderMessages();
+          if (localVersion !== this.renderVersion) return;
+          if (msgIdx < this.messages.length) {
+            this.messages[msgIdx].browserActions = updatedSteps;
+            this.renderMessages();
+          }
         });
         this.saveHistory();
+
+        if (localVersion !== this.renderVersion) return;
 
         const hasNavigation = newActions.some((a) => a.action === "navigate" || a.action === "read_page");
         const isGoalActive = goal && goal.status === "in_progress";
 
         if ((hasNavigation || isGoalActive) && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
           this.followUpDepth++;
-          await this.followUpWithPageData(originalPrompt);
+          await this.followUpWithPageData(originalPrompt, localVersion);
         }
       } else if (goal && goal.status === "in_progress" && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
         this.followUpDepth++;
-        await this.followUpWithPageData(originalPrompt);
+        await this.followUpWithPageData(originalPrompt, localVersion);
       }
     } catch (err: unknown) {
+      if (localVersion !== this.renderVersion) return;
       const error = err as Error;
       if (error.name !== "AbortError") {
         const errorMsg = truncate(error.message || "Unknown error", MAX_ERROR_MESSAGE_LENGTH);
@@ -601,10 +639,12 @@ export class InsightsWidgetElement extends HTMLElement {
         this.saveHistory();
       }
     } finally {
-      this.abortController = null;
-      this.isChatting = false;
-      this.followUpDepth = 0;
-      this.renderMessages();
+      if (localVersion === this.renderVersion) {
+        this.abortController = null;
+        this.isChatting = false;
+        this.followUpDepth = 0;
+        this.renderMessages();
+      }
     }
   }
 

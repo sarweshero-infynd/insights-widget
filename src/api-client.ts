@@ -131,6 +131,9 @@ When the user asks to navigate to a page, use the available site routes to deter
       if (error.name === "AbortError" && !signal?.aborted) {
         throw new Error("Request timed out");
       }
+      if (error.name === "TypeError" && error.message.includes("Failed to fetch")) {
+        throw new Error("Network error: unable to reach the API server");
+      }
       throw err;
     } finally {
       clearTimeout(timeoutId);

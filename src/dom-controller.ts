@@ -18,6 +18,7 @@ export class DomController {
   private maxElements: number;
   private widgetShadowHost: HTMLElement | null = null;
   private agentId: string = "default";
+  private textSelectorMap = new Map<HTMLElement, string>();
 
   constructor(maxElements = 50) {
     this.maxElements = maxElements;
@@ -56,6 +57,16 @@ export class DomController {
     }
     this.observer?.disconnect();
     this.observer = null;
+  }
+
+  /**
+   * Clean up any DOM mutations made to the host page (e.g., data-iw-text attributes).
+   */
+  cleanupHostDom(): void {
+    for (const [el] of this.textSelectorMap) {
+      el.removeAttribute("data-iw-text");
+    }
+    this.textSelectorMap.clear();
   }
 
   /**
@@ -128,6 +139,8 @@ export class DomController {
     });
 
     // Set data-iw-text attributes for text-based selector matching
+    // Store mapping internally to avoid mutating the host page DOM
+    this.textSelectorMap.clear();
     document.querySelectorAll(selector).forEach((el) => {
       const htmlEl = el as HTMLElement;
       if (this.widgetShadowHost && this.widgetShadowHost.contains(htmlEl)) return;
@@ -136,6 +149,7 @@ export class DomController {
       if (text && !htmlEl.querySelector("*")) {
         const tag = htmlEl.tagName.toLowerCase();
         if (tag === "button" || tag === "a" || htmlEl.getAttribute("role") === "button") {
+          this.textSelectorMap.set(htmlEl, text);
           htmlEl.setAttribute("data-iw-text", text);
         }
       }
@@ -362,7 +376,7 @@ export class DomController {
 
         // After navigation, wait for DOM to stabilize
         if (actions[i].action === "navigate") {
-          await waitForDomStable(2000);
+          await waitForDomStable(3000);
         } else {
           await delay(300);
         }
@@ -716,7 +730,7 @@ function findByText(text: string, tagSelector?: string): HTMLElement | null {
   const candidates = document.querySelectorAll(tagSelector || "button, a, [role='button'], span, div, label");
   const lowerText = text.toLowerCase().trim();
 
-  // Exact match first
+  // Exact match first — highest priority
   for (const el of candidates) {
     const htmlEl = el as HTMLElement;
     if (!isVisible(htmlEl)) continue;
@@ -724,7 +738,20 @@ function findByText(text: string, tagSelector?: string): HTMLElement | null {
     if (elText === lowerText) return htmlEl;
   }
 
-  // Partial match
+  // Exact match on direct text content (ignoring children)
+  for (const el of candidates) {
+    const htmlEl = el as HTMLElement;
+    if (!isVisible(htmlEl)) continue;
+    const directText = Array.from(htmlEl.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent || "")
+      .join("")
+      .trim()
+      .toLowerCase();
+    if (directText === lowerText) return htmlEl;
+  }
+
+  // Partial match — lowest priority
   for (const el of candidates) {
     const htmlEl = el as HTMLElement;
     if (!isVisible(htmlEl)) continue;
@@ -772,7 +799,7 @@ function harvestTextContent(widgetHost: HTMLElement | null): string {
 
         // Only include visible text
         const style = window.getComputedStyle(parent);
-        if (style.display === "none" || style.visibility === "hidden") return NodeFilter.FILTER_REJECT;
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return NodeFilter.FILTER_REJECT;
 
         const text = node.textContent?.trim();
         if (!text || text.length < 2) return NodeFilter.FILTER_REJECT;

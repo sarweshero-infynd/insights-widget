@@ -16,6 +16,7 @@ function createInstance(): InsightsWidgetElement {
 
 const InsightsWidget = {
   init(config: Partial<WidgetConfig>): void {
+    if (typeof document === "undefined") return;
     const existing = document.querySelector(TAG_NAME) as InsightsWidgetElement | null;
     if (existing) {
       existing.configure(config);
@@ -42,6 +43,7 @@ const InsightsWidget = {
   destroy(): void {
     const instance = this.getInstance();
     if (instance) {
+      instance.clearHistory();
       instance.remove();
     }
   },

@@ -1,4 +1,5 @@
 const DANGEROUS_PROTOCOLS = /^\s*(javascript|data|vbscript):/i;
+let codeBlockCounter = 0;
 
 function isSafeUrl(url: string): boolean {
   return !DANGEROUS_PROTOCOLS.test(url);
@@ -26,7 +27,7 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang: string, code: string) => {
     const escaped = escapeHtml(code.trimEnd());
     const safeLang = (lang || "text").replace(/[^a-zA-Z0-9_-]/g, "");
-    const codeId = "code-" + Math.random().toString(36).slice(2, 8);
+    const codeId = `code-${++codeBlockCounter}-${Math.random().toString(36).slice(2, 6)}`;
     return `<div class="iw-code-block"><div class="iw-code-header"><span class="iw-code-lang">${safeLang}</span><button class="iw-copy-btn" data-code-id="${codeId}" aria-label="Copy code">Copy</button></div><pre><code id="${codeId}" class="lang-${safeLang}">${escaped}</code></pre></div>`;
   });
 
@@ -34,17 +35,16 @@ export function renderMarkdown(text: string): string {
   html = html.replace(/`([^`\n]+)`/g, (_m, code: string) => `<code>${escapeHtml(code)}</code>`);
 
   // ── 3. Headings ────────────────────────────────────────────────────────
-  // Heading content is NOT escaped here because inline formatting (bold etc.)
-  // will be applied afterwards. The heading text is just plain markdown at
-  // this stage and needs to keep its ** / * / [] markers intact.
-  html = html.replace(/^#### (.+)$/gm, (_m, t: string) => `<h4>${t}</h4>`);
-  html = html.replace(/^### (.+)$/gm, (_m, t: string) => `<h3>${t}</h3>`);
-  html = html.replace(/^## (.+)$/gm, (_m, t: string) => `<h2>${t}</h2>`);
-  html = html.replace(/^# (.+)$/gm, (_m, t: string) => `<h1>${t}</h1>`);
+  // Escape heading content to prevent XSS, but allow inline formatting markers
+  // to survive for later processing.
+  html = html.replace(/^#### (.+)$/gm, (_m, t: string) => `<h4>${escapeHtmlPreserveMarkdown(t)}</h4>`);
+  html = html.replace(/^### (.+)$/gm, (_m, t: string) => `<h3>${escapeHtmlPreserveMarkdown(t)}</h3>`);
+  html = html.replace(/^## (.+)$/gm, (_m, t: string) => `<h2>${escapeHtmlPreserveMarkdown(t)}</h2>`);
+  html = html.replace(/^# (.+)$/gm, (_m, t: string) => `<h1>${escapeHtmlPreserveMarkdown(t)}</h1>`);
 
   // ── 4. Blockquotes ────────────────────────────────────────────────────
-  // Don't escape here — inline formatting will run later.
-  html = html.replace(/^> (.+)$/gm, (_m, t: string) => `<blockquote>${t}</blockquote>`);
+  // Escape blockquote content to prevent XSS.
+  html = html.replace(/^> (.+)$/gm, (_m, t: string) => `<blockquote>${escapeHtmlPreserveMarkdown(t)}</blockquote>`);
   html = html.replace(/<\/blockquote>\n<blockquote>/g, "\n");
 
   // ── 5. Horizontal rules ───────────────────────────────────────────────
@@ -55,13 +55,12 @@ export function renderMarkdown(text: string): string {
   html = processTables(html);
 
   // ── 7. Unordered lists ────────────────────────────────────────────────
-  // Don't escape list items — they may contain markdown that inline
-  // formatting (bold, italic, links) still needs to process.
+  // Escape list items to prevent XSS, but allow inline formatting markers.
   html = html.replace(/^(?:- (.+)\n?)+/gm, (match) => {
     const items = match
       .split("\n")
       .filter((l) => l.startsWith("- "))
-      .map((l) => `<li>${l.slice(2)}</li>`)
+      .map((l) => `<li>${escapeHtmlPreserveMarkdown(l.slice(2))}</li>`)
       .join("");
     return `<ul>${items}</ul>`;
   });
@@ -71,7 +70,7 @@ export function renderMarkdown(text: string): string {
     const items = match
       .split("\n")
       .filter((l) => /^\d+\./.test(l))
-      .map((l) => `<li>${l.replace(/^\d+\.\s*/, "")}</li>`)
+      .map((l) => `<li>${escapeHtmlPreserveMarkdown(l.replace(/^\d+\.\s*/, ""))}</li>`)
       .join("");
     return `<ol>${items}</ol>`;
   });
@@ -130,14 +129,13 @@ function processTables(html: string): string {
 
       let table = "<table><thead><tr>";
       for (const cell of headerCells) {
-        // Don't escape — inline formatting will run after this
-        table += `<th>${cell}</th>`;
+        table += `<th>${escapeHtmlPreserveMarkdown(cell)}</th>`;
       }
       table += "</tr></thead><tbody>";
       for (const row of rows) {
         table += "<tr>";
         for (const cell of row) {
-          table += `<td>${cell}</td>`;
+          table += `<td>${escapeHtmlPreserveMarkdown(cell)}</td>`;
         }
         table += "</tr>";
       }
@@ -161,6 +159,14 @@ function parseTableRow(line: string): string[] {
 }
 
 function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function escapeHtmlPreserveMarkdown(str: string): string {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
