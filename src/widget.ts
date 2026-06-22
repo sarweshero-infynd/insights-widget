@@ -73,6 +73,7 @@ export class InsightsWidgetElement extends HTMLElement {
     debugLog(this.config, "Connected", { apiUrl: this.config.apiUrl, agentId: this.config.agentId });
     this.api = new ApiClient(this.config.apiUrl, this.config.apiKey, this.config.agentId);
     this.dom.setWidgetHost(this);
+    this.dom.setAgentId(this.config.agentId);
     this.dom.setMaxElements(this.config.maxContextElements || 50);
     this.loadHistory();
     this.render();
@@ -145,6 +146,12 @@ export class InsightsWidgetElement extends HTMLElement {
     
     if (this.config.apiUrl && this.config.apiKey && this.config.agentId && this.api) {
       this.api.setConfig(this.config.apiUrl, this.config.apiKey, this.config.agentId);
+
+      // Clear the stale "configuration incomplete" message that may have been
+      // added during connectedCallback before configure() was called.
+      this.messages = this.messages.filter(
+        (m) => !m.content.includes("Widget configuration is incomplete")
+      );
     }
     if (opts.suggestions) this.config.suggestions = opts.suggestions;
     if (opts.maxContextElements) this.dom.setMaxElements(opts.maxContextElements);
@@ -530,10 +537,15 @@ export class InsightsWidgetElement extends HTMLElement {
 
       const newContext = this.dom.harvestPageContext();
 
+      const routesInfo = newContext.routes?.length
+        ? ` Available site routes: ${newContext.routes.map((r) => `${r.path}${r.label ? ` (${r.label})` : ""}`).join(", ")}.`
+        : "";
+
       const followUp = `[SYSTEM: Page navigated. Current URL: ${newContext.url}, Title: "${newContext.title}". `
         + `Visible text content: ${(newContext.textContent || "").slice(0, 2000)}. `
-        + `Interactive elements: ${JSON.stringify(newContext.elements.slice(0, 30))}. `
-        + `Please process this page data and provide the answer to the user's original request: "${originalPrompt}"]`;
+        + `Interactive elements: ${JSON.stringify(newContext.elements.slice(0, 30))}.`
+        + `${routesInfo}`
+        + ` Please process this page data and provide the answer to the user's original request: "${originalPrompt}"]`;
 
       const history = this.messages
         .filter((m) => !m.isStreaming && m.content)

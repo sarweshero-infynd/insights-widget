@@ -1,4 +1,4 @@
-import type { ChatResponse, PageContext } from "./types";
+import type { ChatResponse, PageContext, RouteEntry } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const MAX_MESSAGE_LENGTH = 50000;
@@ -57,6 +57,13 @@ export class ApiClient {
     }
 
     let finalMessage = trimmedMessage;
+
+    // Build route context for the system instruction
+    let routeContext = "";
+    if (pageContext?.routes && pageContext.routes.length > 0) {
+      routeContext = `\nAvailable site routes: ${pageContext.routes.map((r: RouteEntry) => `${r.path}${r.label ? ` (${r.label})` : ""}`).join(", ")}.`;
+    }
+
     if (!history || history.length === 0) {
       finalMessage += `\n\n[SYSTEM INSTRUCTION: You are an autonomous goal-oriented agent. When executing multi-step tasks, you MUST track your progress by outputting your current goal state using the following XML schema before your <action> tag:
 <goal description="Overall task description" status="in_progress">
@@ -64,7 +71,11 @@ export class ApiClient {
   <step status="active">Step 2</step>
   <step status="pending">Step 3</step>
 </goal>
-Valid goal statuses: in_progress, completed, failed. Valid step statuses: completed, active, pending, failed.]`;
+Valid goal statuses: in_progress, completed, failed. Valid step statuses: completed, active, pending, failed.
+When the user asks to navigate to a page, use the available site routes to determine the correct path. Use <action type="navigate" path="/route" /> to navigate.]${routeContext}`;
+    } else if (routeContext) {
+      // Append route context to subsequent messages so the agent stays aware
+      finalMessage += `\n\n[SYSTEM: Current site routes:${routeContext}]`;
     }
 
     const body: Record<string, unknown> = {

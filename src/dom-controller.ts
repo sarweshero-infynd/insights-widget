@@ -1,8 +1,11 @@
-import type { PageContext, PageElement, BrowserAction, BrowserActionStep } from "./types";
+import type { PageContext, PageElement, BrowserAction, BrowserActionStep, RouteEntry } from "./types";
+
+const ROUTE_STORAGE_PREFIX = "iw_";
+const MAX_ROUTES = 200;
 
 /**
  * DomController handles two core responsibilities:
- * 1. Harvesting page context (interactive elements, page text) to feed to the AI agent
+ * 1. Harvesting page context (interactive elements, page text, site routes) to feed to the AI agent
  * 2. Executing browser actions returned by the AI agent (navigate, click, type, etc.)
  *
  * Key design: After navigation, it waits for the DOM to stabilize before reporting
@@ -14,6 +17,7 @@ export class DomController {
   private _debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   private maxElements: number;
   private widgetShadowHost: HTMLElement | null = null;
+  private agentId: string = "default";
 
   constructor(maxElements = 50) {
     this.maxElements = maxElements;
@@ -25,6 +29,10 @@ export class DomController {
 
   setMaxElements(max: number): void {
     this.maxElements = Math.max(1, Math.min(200, max));
+  }
+
+  setAgentId(id: string): void {
+    this.agentId = id || "default";
   }
 
   startObserving(callback: () => void): void {
@@ -136,14 +144,195 @@ export class DomController {
     // Also harvest some visible text content for richer context
     const textContent = harvestTextContent(this.widgetShadowHost);
 
+    // Discover and merge site routes
+    const freshRoutes = this.discoverRoutes();
+    this.mergeRoutes(freshRoutes);
+    const routes = this.loadRoutes();
+
     return {
       url: window.location.href,
       pathname: window.location.pathname,
       title: document.title,
       elements,
       textContent,
+      routes,
       timestamp: Date.now(),
     };
+  }
+
+  // ─── Route Discovery ──────────────────────────────────────────────────────
+
+  /**
+   * Discover all navigable routes on the current page from multiple sources:
+   * 1. <a href> tags (both visible and hidden — nav menus, footers, etc.)
+   * 2. SPA router globals (Next.js, Nuxt, React Router, Vue Router)
+   * 3. Script-based route configurations
+   */
+  private discoverRoutes(): RouteEntry[] {
+    const routes: RouteEntry[] = [];
+    const seen = new Set<string>();
+    const origin = window.location.origin;
+
+    const addRoute = (path: string, label?: string, title?: string) => {
+      if (!path || path.startsWith("#") || path.startsWith("javascript:") || path.startsWith("mailto:") || path.startsWith("tel:")) return;
+      try {
+        const url = new URL(path, origin);
+        if (url.origin !== origin) return;
+        const pathname = url.pathname.replace(/\/$/, "") || "/";
+        if (seen.has(pathname)) return;
+        seen.add(pathname);
+        routes.push({ path: pathname, label, title });
+      } catch { /* skip invalid URLs */ }
+    };
+
+    // 1. Scan all <a href> tags
+    document.querySelectorAll("a[href]").forEach((a) => {
+      const anchor = a as HTMLAnchorElement;
+      const href = anchor.getAttribute("href");
+      if (!href) return;
+      const text = (anchor.textContent || "").trim().slice(0, 60) || undefined;
+      addRoute(href, text);
+    });
+
+    // 2. SPA Router Globals
+
+    // Next.js — __NEXT_DATA__.props.pageProps.__routes or buildManifest
+    try {
+      const win = window as unknown as Record<string, unknown>;
+      const nextData = win["__NEXT_DATA__"] as Record<string, unknown> | undefined;
+      if (nextData?.props) {
+        const props = nextData.props as Record<string, unknown>;
+        const pageProps = props.pageProps as Record<string, unknown> | undefined;
+        // Next.js app router routes
+        if (pageProps?.routes && Array.isArray(pageProps.routes)) {
+          for (const r of pageProps.routes as Array<Record<string, string>>) {
+            if (r.path) addRoute(r.path, r.name || r.label);
+          }
+        }
+      }
+      // Next.js pages manifest
+      const buildManifest = win["__BUILD_MANIFEST"] as Record<string, unknown> | undefined;
+      if (buildManifest) {
+        for (const key of Object.keys(buildManifest)) {
+          if (key !== "/_app" && key !== "/_error" && key !== "/_document") {
+            addRoute(key);
+          }
+        }
+      }
+    } catch { /* skip */ }
+
+    // Nuxt — __NUXT__.config.routes or router options
+    try {
+      const win = window as unknown as Record<string, unknown>;
+      const nuxtData = win["__NUXT__"] as Record<string, unknown> | undefined;
+      if (nuxtData?.config) {
+        const config = nuxtData.config as Record<string, unknown>;
+        if (config.router && typeof config.router === "object") {
+          const router = config.router as Record<string, unknown>;
+          if (Array.isArray(router.routes)) {
+            for (const r of router.routes as Array<Record<string, string>>) {
+              if (r.path) addRoute(r.path, r.name);
+            }
+          }
+        }
+      }
+    } catch { /* skip */ }
+
+    // React Router — check for route manifest in __remixContext or window.__router
+    try {
+      const win = window as unknown as Record<string, unknown>;
+      const remixCtx = win["__remixContext"] as Record<string, unknown> | undefined;
+      if (remixCtx?.manifest) {
+        const manifest = remixCtx.manifest as Record<string, unknown>;
+        for (const [key, val] of Object.entries(manifest)) {
+          if (key.startsWith("/") && val && typeof val === "object") {
+            const entry = val as Record<string, unknown>;
+            const routeId = (entry.id || entry.module || "") as string;
+            addRoute(key, routeId.split("/").pop());
+          }
+        }
+      }
+    } catch { /* skip */ }
+
+    // 3. Script-based route configs (JSON-LD, data attributes)
+    document.querySelectorAll("script[type='application/json'], script[data-routes]").forEach((script) => {
+      try {
+        const text = script.textContent || "";
+        const data = JSON.parse(text);
+        if (data && typeof data === "object") {
+          const routeList = data.routes || data.pages || data.navigation;
+          if (Array.isArray(routeList)) {
+            for (const r of routeList) {
+              if (typeof r === "string") addRoute(r);
+              else if (r?.path) addRoute(r.path, r.name || r.label);
+            }
+          }
+        }
+      } catch { /* skip malformed JSON */ }
+    });
+
+    // 4. data-route attributes on any element
+    document.querySelectorAll("[data-route]").forEach((el) => {
+      const route = el.getAttribute("data-route");
+      if (route) {
+        const text = (el.textContent || "").trim().slice(0, 60) || undefined;
+        addRoute(route, text);
+      }
+    });
+
+    return routes;
+  }
+
+  /**
+   * Merge freshly discovered routes into the persisted route store.
+   * Preserves existing routes, adds new ones, updates labels if better ones found.
+   */
+  private mergeRoutes(freshRoutes: RouteEntry[]): void {
+    const existing = this.loadRoutes();
+    const merged = new Map<string, RouteEntry>();
+
+    for (const r of existing) {
+      merged.set(r.path, r);
+    }
+
+    for (const r of freshRoutes) {
+      const existing = merged.get(r.path);
+      if (!existing) {
+        merged.set(r.path, r);
+      } else if (r.label && (!existing.label || r.label.length > existing.label.length)) {
+        merged.set(r.path, { ...existing, label: r.label });
+      }
+    }
+
+    // Always include current page
+    const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
+    if (!merged.has(currentPath)) {
+      merged.set(currentPath, { path: currentPath, title: document.title });
+    }
+
+    const result = Array.from(merged.values()).slice(0, MAX_ROUTES);
+    this.saveRoutes(result);
+  }
+
+  private getRouteStorageKey(): string {
+    return `${ROUTE_STORAGE_PREFIX}${this.agentId}_routes`;
+  }
+
+  private loadRoutes(): RouteEntry[] {
+    try {
+      const raw = sessionStorage.getItem(this.getRouteStorageKey());
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.slice(0, MAX_ROUTES);
+      }
+    } catch { /* ignore corrupt data */ }
+    return [];
+  }
+
+  private saveRoutes(routes: RouteEntry[]): void {
+    try {
+      sessionStorage.setItem(this.getRouteStorageKey(), JSON.stringify(routes.slice(0, MAX_ROUTES)));
+    } catch { /* storage full or unavailable */ }
   }
 
   /**

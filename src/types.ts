@@ -259,12 +259,23 @@ export interface PageElement {
   value?: string;
 }
 
+export interface RouteEntry {
+  /** URL path (e.g., "/dashboard", "/inbox/whatsapp") */
+  path: string;
+  /** Human-readable label derived from link text or route metadata */
+  label?: string;
+  /** Page title if known */
+  title?: string;
+}
+
 export interface PageContext {
   url: string;
   pathname: string;
   title: string;
   elements: PageElement[];
   textContent?: string;
+  /** Discovered site routes for navigation context */
+  routes?: RouteEntry[];
   timestamp: number;
 }
 
