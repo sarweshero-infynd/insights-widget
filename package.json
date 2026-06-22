@@ -1,5 +1,5 @@
 {
-  "name": "@27x/insights-widget",
+  "name": "@sarweshero/insights-widget",
   "version": "1.0.0",
   "description": "Standalone embeddable AI Assistance widget — framework-agnostic, fully customizable, single-file output",
   "type": "module",
