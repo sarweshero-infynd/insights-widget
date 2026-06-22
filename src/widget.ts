@@ -83,6 +83,7 @@ export class InsightsWidgetElement extends HTMLElement {
     this.boundKeyHandler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && this.isOpen) {
         this.isOpen = false;
+        this.savePanelState();
         this.updatePanel();
       }
     };
@@ -165,11 +166,24 @@ export class InsightsWidgetElement extends HTMLElement {
       this.loadHistory();
       this.historyLoaded = true;
     }
+
+    // Restore panel open/expanded state from previous session
+    this.loadPanelState();
+
     this.render();
   }
 
-  public open(): void { this.isOpen = true; this.updatePanel(); this.focusInput(); }
-  public close(): void { this.isOpen = false; this.updatePanel(); }
+  public open(): void {
+    this.isOpen = true;
+    this.savePanelState();
+    this.updatePanel();
+    this.focusInput();
+  }
+  public close(): void {
+    this.isOpen = false;
+    this.savePanelState();
+    this.updatePanel();
+  }
 
   public clearHistory(): void {
     this.messages = [];
@@ -186,6 +200,33 @@ export class InsightsWidgetElement extends HTMLElement {
   private getStorageKey(): string {
     const agentId = this.config?.agentId || "default";
     return `${STORAGE_KEY_PREFIX}${agentId}_history`;
+  }
+
+  private getPanelStateKey(): string {
+    const agentId = this.config?.agentId || "default";
+    return `${STORAGE_KEY_PREFIX}${agentId}_panel`;
+  }
+
+  private loadPanelState(): void {
+    try {
+      const raw = sessionStorage.getItem(this.getPanelStateKey());
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          this.isOpen = parsed.isOpen ?? false;
+          this.isExpanded = parsed.isExpanded ?? false;
+        }
+      }
+    } catch { /* ignore corrupt data */ }
+  }
+
+  private savePanelState(): void {
+    try {
+      sessionStorage.setItem(this.getPanelStateKey(), JSON.stringify({
+        isOpen: this.isOpen,
+        isExpanded: this.isExpanded,
+      }));
+    } catch { /* storage full or unavailable */ }
   }
 
   private loadHistory(): void {
@@ -219,6 +260,7 @@ export class InsightsWidgetElement extends HTMLElement {
     this.fabEl.innerHTML = icons.sparkles(26);
     this.fabEl.addEventListener("click", () => {
       this.isOpen = !this.isOpen;
+      this.savePanelState();
       this.updatePanel();
       if (this.isOpen) this.focusInput();
     });
@@ -265,9 +307,12 @@ export class InsightsWidgetElement extends HTMLElement {
       this.panelEl!.classList.toggle("iw-expanded", this.isExpanded);
       expandBtn.innerHTML = this.isExpanded ? icons.minimize(16) : icons.maximize(16);
       expandBtn.setAttribute("aria-label", this.isExpanded ? "Collapse panel" : "Expand panel");
+      this.savePanelState();
     });
     if (closeBtn) closeBtn.addEventListener("click", () => {
-      this.isOpen = false; this.updatePanel();
+      this.isOpen = false;
+      this.savePanelState();
+      this.updatePanel();
     });
 
     // Messages
