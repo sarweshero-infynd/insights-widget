@@ -165,6 +165,22 @@ export class InsightsWidgetElement extends HTMLElement {
     if (this.messages.length === 0 && !this.historyLoaded) {
       this.loadHistory();
       this.historyLoaded = true;
+
+      // After loading history, check if there's an active goal that needs continuation.
+      // This happens after page refresh — the goal was in progress but the page reloaded.
+      if (this.messages.length > 0) {
+        const activeGoal = this.findActiveGoal();
+        if (activeGoal && !this.isChatting) {
+          debugLog(this.config, "Found active goal after history load, continuing:", activeGoal.description);
+          const localVersion = ++this.renderVersion;
+          // Defer to allow widget to fully initialize before making API call
+          setTimeout(() => {
+            if (localVersion === this.renderVersion && !this.isChatting) {
+              this.followUpWithPageData(activeGoal.description, localVersion);
+            }
+          }, 500);
+        }
+      }
     }
 
     // Restore panel open/expanded state from previous session
@@ -581,9 +597,13 @@ export class InsightsWidgetElement extends HTMLElement {
           this.followUpDepth++;
           await this.followUpWithPageData(prompt, localVersion);
         }
-      } else if (goal && goal.status === "in_progress" && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
-        this.followUpDepth++;
-        await this.followUpWithPageData(prompt, localVersion);
+      } else if (this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
+        // Check for active goal in history (AI might not have output a new goal tag)
+        const historyGoal = this.findActiveGoal();
+        if (historyGoal || (goal && goal.status === "in_progress")) {
+          this.followUpDepth++;
+          await this.followUpWithPageData(prompt, localVersion);
+        }
       }
     } catch (err: unknown) {
       if (localVersion !== this.renderVersion) return;

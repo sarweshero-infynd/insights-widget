@@ -169,7 +169,7 @@ navigate, click, type, fill, select, scroll, highlight, read_page
 <action type="..." selector="..." value="..." buttonText="..." path="..." />]${routeContext}`;
     } else if (routeContext) {
       // Append route context to subsequent messages so the agent stays aware
-      finalMessage += `\n\n[SYSTEM: Current site routes:${routeContext}. REMINDER: You are an autonomous agent. When executing multi-step tasks, update the <goal> tag — mark completed steps, set the next step as active, and execute ONE action per response.]`;
+      finalMessage += `\n\n[SYSTEM: Current site routes:${routeContext}. CRITICAL REMINDER: You are an autonomous agent. EVERY response MUST contain an <action> tag. If there is an ongoing goal, update the <goal> tag AND output the next <action> tag to continue executing. A response with only text and no <action> tag is FORBIDDEN. Execute ONE action per response.]`;
     }
 
     const body: Record<string, unknown> = {
