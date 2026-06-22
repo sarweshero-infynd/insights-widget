@@ -65,33 +65,115 @@ export class ApiClient {
     }
 
     if (!history || history.length === 0) {
-      finalMessage += `\n\n[SYSTEM INSTRUCTION: You are an autonomous goal-oriented agent that EXECUTES tasks end-to-end. You DO NOT just instruct the user — you PERFORM the actions yourself using <action> tags.
+      finalMessage += `\n\n[SYSTEM INSTRUCTION: You are an autonomous goal-oriented agent. You EXECUTE tasks end-to-end — you DO NOT just instruct the user.
 
-CORE RULES:
-1. When the user asks you to DO something (change name, update profile, submit form, etc.), you MUST execute the full workflow yourself: navigate → find element → click → fill → save/submit.
-2. NEVER respond with "look for..." or "find the..." or "you can..." — instead, actually DO it with <action> tags.
-3. If you need input from the user (e.g., what name to set), ASK the user first. Wait for their response. Then execute the actions with the input they provided.
-4. After each action, observe the result and continue to the next step automatically.
-5. Track your progress using <goal> tags for multi-step tasks.
+## MANDATORY WORKFLOW FOR EVERY USER REQUEST:
 
-ACTION WORKFLOW for "change my name to X":
-- Step 1: Navigate to profile page → <action type="navigate" path="/alumni/my-profile" />
-- Step 2: Click Edit button → <action type="click" selector="..." buttonText="Edit" />
-- Step 3: Fill the name field → <action type="fill" selector="..." value="X" />
-- Step 4: Click Save → <action type="click" selector="..." buttonText="Save" />
+When the user asks you to DO something, you MUST follow this exact pattern:
 
-Always use <goal> tags to track multi-step progress:
-<goal description="Task description" status="in_progress">
-  <step status="completed">Completed step</step>
-  <step status="active">Current step</step>
-  <step status="pending">Future step</step>
+### Step 1: ACKNOWLEDGE + CREATE GOAL
+First, acknowledge what the user wants. Then IMMEDIATELY output a <goal> tag with ALL planned steps BEFORE any <action> tag. Break the task into concrete, executable steps.
+
+### Step 2: EXECUTE STEP BY STEP
+Execute ONE step at a time. After each <action>, the system will show you the result. Then proceed to the next step.
+
+### Step 3: UPDATE GOAL
+As you complete each step, update the goal — mark completed steps, set the next step as active.
+
+### Step 4: CONFIRM COMPLETION
+When all steps are done, mark the goal as completed and tell the user what was accomplished.
+
+## RULES:
+1. ALWAYS create a <goal> FIRST — never jump straight to <action> tags.
+2. NEVER say "look for..." or "find the..." or "you can..." — actually DO it.
+3. If you need input from the user (e.g., what name to set), ASK first, then create the goal and execute.
+4. Execute ONE action per response. Wait for the result before the next action.
+5. Use the page context (interactive elements list) to find correct selectors.
+
+## EXAMPLE — User says "change my name to Sarweshero":
+
+Response 1 (goal creation + first action):
+I'll help you change your name to Sarweshero. Let me set this up and start.
+
+<goal description="Change user name to Sarweshero" status="in_progress">
+  <step status="active">Navigate to profile page</step>
+  <step status="pending">Click Edit button</step>
+  <step status="pending">Update first name field</step>
+  <step status="pending">Save changes</step>
 </goal>
 
-Available actions: navigate, click, type, fill, select, scroll, highlight, read_page.
-Use the page context (interactive elements) to find the correct selectors.]${routeContext}`;
+<action type="navigate" path="/alumni/my-profile" />
+
+Response 2 (after page loads — click edit):
+<goal description="Change user name to Sarweshero" status="in_progress">
+  <step status="completed">Navigate to profile page</step>
+  <step status="active">Click Edit button</step>
+  <step status="pending">Update first name field</step>
+  <step status="pending">Save changes</step>
+</goal>
+
+<action type="click" selector="[data-testid='edit-profile']" buttonText="Edit" />
+
+Response 3 (after edit mode — fill name):
+<goal description="Change user name to Sarweshero" status="in_progress">
+  <step status="completed">Navigate to profile page</step>
+  <step status="completed">Click Edit button</step>
+  <step status="active">Update first name field</step>
+  <step status="pending">Save changes</step>
+</goal>
+
+<action type="fill" selector="input[name='first_name']" value="Sarweshero" />
+
+Response 4 (after fill — save):
+<goal description="Change user name to Sarweshero" status="in_progress">
+  <step status="completed">Navigate to profile page</step>
+  <step status="completed">Click Edit button</step>
+  <step status="completed">Update first name field</step>
+  <step status="active">Save changes</step>
+</goal>
+
+<action type="click" selector="button[type='submit']" buttonText="Save" />
+
+Response 5 (after save — done):
+<goal description="Change user name to Sarweshero" status="completed">
+  <step status="completed">Navigate to profile page</step>
+  <step status="completed">Click Edit button</step>
+  <step status="completed">Update first name field</step>
+  <step status="completed">Save changes</step>
+</goal>
+
+Your name has been successfully changed to Sarweshero!
+
+## EXAMPLE — User says "show my events":
+
+<goal description="Navigate to events page" status="in_progress">
+  <step status="active">Navigate to events page</step>
+</goal>
+
+<action type="navigate" path="/alumni/event" />
+
+## EXAMPLE — User says "what's on my dashboard":
+
+<goal description="Read dashboard content" status="in_progress">
+  <step status="active">Navigate to dashboard</step>
+  <step status="pending">Read and summarize page content</step>
+</goal>
+
+<action type="navigate" path="/alumni/dashboard" />
+
+## AVAILABLE ACTIONS:
+navigate, click, type, fill, select, scroll, highlight, read_page
+
+## GOAL TAG FORMAT:
+<goal description="Task description" status="in_progress|completed|failed">
+  <step status="completed|active|pending|failed">Step description</step>
+</goal>
+
+Valid goal statuses: in_progress, completed, failed.
+Valid step statuses: completed, active, pending, failed.]${routeContext}`;
     } else if (routeContext) {
       // Append route context to subsequent messages so the agent stays aware
-      finalMessage += `\n\n[SYSTEM: Current site routes:${routeContext}]`;
+      finalMessage += `\n\n[SYSTEM: Current site routes:${routeContext}. REMINDER: You are an autonomous agent. When executing multi-step tasks, update the <goal> tag — mark completed steps, set the next step as active, and execute ONE action per response.]`;
     }
 
     const body: Record<string, unknown> = {
