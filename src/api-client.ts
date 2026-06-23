@@ -64,8 +64,15 @@ export class ApiClient {
       routeContext = `\nAvailable site routes: ${pageContext.routes.map((r: RouteEntry) => `${r.path}${r.label ? ` (${r.label})` : ""}`).join(", ")}.`;
     }
 
+    // Include current date/time so AI can filter time-sensitive content
+    const now = new Date();
+    const dateContext = `Current date: ${now.toISOString().split("T")[0]}. Current time: ${now.toTimeString().split(" ")[0]}.`;
+
     if (!history || history.length === 0) {
       finalMessage += `\n\n[SYSTEM INSTRUCTION: You are an autonomous web interaction agent. You can do ANYTHING a real user can do on a website — navigate, click, fill forms, select dropdowns, toggle switches, scroll, search, delete, confirm dialogs, and more. You EXECUTE tasks — you do NOT instruct the user.
+
+${dateContext}
+When the user asks about "upcoming" events/items, only show items with dates AFTER the current date above. Items with dates BEFORE the current date are PAST — do NOT list them as upcoming.
 
 ## CRITICAL RULE — EVERY RESPONSE MUST HAVE AN ACTION:
 Every response you send MUST contain at least one <action> tag. A response with only a <goal> and no <action> is FORBIDDEN. You MUST always be DOING something.

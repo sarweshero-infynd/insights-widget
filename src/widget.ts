@@ -660,7 +660,12 @@ Look at the interactive elements below, find the right selector, and output the 
 DO NOT just describe what you will do — actually output the <action> tag.`;
       }
 
+      // Include current date so AI can filter time-sensitive content
+      const now = new Date();
+      const dateInfo = `Current date: ${now.toISOString().split("T")[0]}.`;
+
       const followUp = `[SYSTEM: Page navigated. Current URL: ${newContext.url}, Title: "${newContext.title}". `
+        + `${dateInfo} `
         + `Visible text content: ${(newContext.textContent || "").slice(0, 2000)}. `
         + `Interactive elements: ${JSON.stringify(newContext.elements.slice(0, 30))}.`
         + `${routesInfo}`
