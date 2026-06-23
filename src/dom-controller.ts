@@ -379,9 +379,12 @@ export class DomController {
       try {
         await executeAction(actions[i]);
 
-        // After navigation, wait for DOM to stabilize
+        // Wait for DOM to stabilize after actions that may change the page
         if (actions[i].action === "navigate") {
           await waitForDomStable(3000);
+        } else if (actions[i].action === "click") {
+          // Clicks may open modals, dropdowns, or tabs — wait for DOM to settle
+          await waitForDomStable(2000);
         } else {
           await delay(300);
         }
