@@ -1,6 +1,6 @@
 {
   "name": "@sarweshero/insights-widget",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Standalone embeddable AI Assistance widget — framework-agnostic, fully customizable, single-file output",
   "type": "module",
   "main": "dist/insights-widget.js",
