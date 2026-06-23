@@ -719,13 +719,21 @@ DO NOT just describe what you will do — actually output the <action> tag.`;
         const hasNavigation = newActions.some((a) => a.action === "navigate" || a.action === "read_page");
         const isGoalActive = goal && goal.status === "in_progress";
 
-        if ((hasNavigation || isGoalActive) && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
+        // Check history for active goal — AI might not output goal tag in every response
+        const historyGoal = this.findActiveGoal();
+        const shouldContinue = hasNavigation || isGoalActive || historyGoal;
+
+        if (shouldContinue && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
           this.followUpDepth++;
           await this.followUpWithPageData(originalPrompt, localVersion);
         }
-      } else if (goal && goal.status === "in_progress" && this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
-        this.followUpDepth++;
-        await this.followUpWithPageData(originalPrompt, localVersion);
+      } else if (this.followUpDepth < MAX_FOLLOWUP_DEPTH) {
+        // No actions in response — but check if there's an active goal in history
+        const historyGoal = this.findActiveGoal();
+        if (historyGoal || (goal && goal.status === "in_progress")) {
+          this.followUpDepth++;
+          await this.followUpWithPageData(originalPrompt, localVersion);
+        }
       }
     } catch (err: unknown) {
       if (localVersion !== this.renderVersion) return;
