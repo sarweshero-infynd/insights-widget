@@ -9,7 +9,7 @@ const options = {
   bundle: true,
   minify: true,
   sourcemap: false,
-  target: "es2020",
+  target: ["es2018", "chrome63", "firefox58", "safari11.1", "edge79"],
   format: "iife",
   globalName: "InsightsWidgetGlobal",
   outfile: "dist/insights-widget.js",

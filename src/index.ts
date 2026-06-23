@@ -4,6 +4,22 @@ import type { WidgetConfig } from "./types";
 const TAG_NAME = "insights-widget";
 const INITIALIZATION_MARKER = "__iw_initialized";
 
+// Feature detection — warn if critical APIs are missing
+function checkCompatibility(): boolean {
+  const missing: string[] = [];
+  if (typeof customElements === "undefined") missing.push("CustomElements");
+  if (typeof ShadowRoot === "undefined") missing.push("ShadowRoot");
+  if (typeof fetch === "undefined") missing.push("fetch");
+  if (typeof AbortController === "undefined") missing.push("AbortController");
+  if (typeof MutationObserver === "undefined") missing.push("MutationObserver");
+
+  if (missing.length > 0) {
+    console.warn(`[InsightsWidget] Missing required APIs: ${missing.join(", ")}. Widget may not work correctly.`);
+    return false;
+  }
+  return true;
+}
+
 if (typeof customElements !== "undefined" && !customElements.get(TAG_NAME)) {
   customElements.define(TAG_NAME, InsightsWidgetElement);
 }

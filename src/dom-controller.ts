@@ -3,6 +3,11 @@ import type { PageContext, PageElement, BrowserAction, BrowserActionStep, RouteE
 const ROUTE_STORAGE_PREFIX = "iw_";
 const MAX_ROUTES = 200;
 
+// CSS.escape polyfill for older browsers (Safari < 13.1, IE11)
+const escapeCSS = typeof CSS !== "undefined" && CSS.escape
+  ? CSS.escape
+  : (s: string) => s.replace(/([^\w-])/g, "\\$1");
+
 /**
  * DomController handles two core responsibilities:
  * 1. Harvesting page context (interactive elements, page text, site routes) to feed to the AI agent
@@ -428,12 +433,12 @@ function getElementText(el: HTMLElement): string {
 function buildSelector(el: HTMLElement): string {
   // Priority: data-testid > id > aria-label > name > tag+class
   const testId = el.getAttribute("data-testid");
-  if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
+  if (testId) return `[data-testid="${escapeCSS(testId)}"]`;
 
-  if (el.id) return `#${CSS.escape(el.id)}`;
+  if (el.id) return `#${escapeCSS(el.id)}`;
 
   const ariaLabel = el.getAttribute("aria-label");
-  if (ariaLabel) return `[aria-label="${CSS.escape(ariaLabel)}"]`;
+  if (ariaLabel) return `[aria-label="${escapeCSS(ariaLabel)}"]`;
 
   const tag = el.tagName.toLowerCase();
   const parts: string[] = [tag];
@@ -444,7 +449,7 @@ function buildSelector(el: HTMLElement): string {
 
   const name = el.getAttribute("name");
   if (name) {
-    parts.push(`[name="${CSS.escape(name)}"]`);
+    parts.push(`[name="${escapeCSS(name)}"]`);
     return parts.join("");
   }
 
@@ -459,7 +464,7 @@ function buildSelector(el: HTMLElement): string {
 
   // Last resort: add first class
   const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
-  if (cls) parts.push(`.${CSS.escape(cls)}`);
+  if (cls) parts.push(`.${escapeCSS(cls)}`);
 
   return parts.join("");
 }

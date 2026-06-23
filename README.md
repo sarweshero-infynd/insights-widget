@@ -435,15 +435,18 @@ import type {
 
 ## Browser Support
 
-- Chrome 67+
-- Firefox 63+
-- Safari 10.1+
+- Chrome 63+
+- Firefox 58+
+- Safari 11.1+
 - Edge 79+
 
 Requires:
-- `CustomElements` v1
-- `ShadowRoot` v1
-- `AbortSignal` (with polyfill for older browsers)
+- `CustomElements` v1 (Chrome 67+, Firefox 63+, Safari 10.1+)
+- `ShadowRoot` v1 (same as above)
+- `AbortController` (Chrome 66+, Firefox 57+, Safari 11.1+)
+- `fetch()` (Chrome 42+, Firefox 39+, Safari 10.1+)
+
+**IE11 is NOT supported** (no Custom Elements or Shadow DOM).
 
 ---
 

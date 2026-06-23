@@ -25,7 +25,7 @@ export function renderMarkdown(text: string): string {
 
   // ── 1. Fenced code blocks (must be first) ──────────────────────────────
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang: string, code: string) => {
-    const escaped = escapeHtml(code.trimEnd());
+    const escaped = escapeHtml(code.replace(/\s+$/, ""));
     const safeLang = (lang || "text").replace(/[^a-zA-Z0-9_-]/g, "");
     const codeId = `code-${++codeBlockCounter}-${Math.random().toString(36).slice(2, 6)}`;
     return `<div class="iw-code-block"><div class="iw-code-header"><span class="iw-code-lang">${safeLang}</span><button class="iw-copy-btn" data-code-id="${codeId}" aria-label="Copy code">Copy</button></div><pre><code id="${codeId}" class="lang-${safeLang}">${escaped}</code></pre></div>`;
