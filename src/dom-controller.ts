@@ -503,16 +503,26 @@ async function executeAction(action: BrowserAction): Promise<void> {
         return;
       }
 
-      // For SPA navigation, try to find a matching link
+      // Step 1: ALWAYS dispatch custom event first — lets React Router / SPA handle it
+      const navEvent = new CustomEvent("insights-widget:navigate", {
+        detail: { path: action.path, tab: action.tab },
+        bubbles: true,
+        cancelable: true
+      });
+      const notCancelled = document.dispatchEvent(navEvent);
+
+      // If host app handled it (called e.preventDefault()), we're done
+      if (!notCancelled) return;
+
+      // Step 2: Host app didn't handle it — try finding a matching <a> link
       const matchingLink = findMatchingLink(action.path);
       if (matchingLink) {
+        // Prevent full page refresh — use SPA navigation instead
         matchingLink.click();
         return;
       }
 
-      // Advanced Heuristic: Sub-path Tab Resolution
-      // If the agent hallucinates a path like "/inbox/whatsapp", but the SPA handles tabs via state/query,
-      // check if we are already on the base path (e.g. "/inbox"). If so, try to click a tab matching the last segment.
+      // Step 3: Advanced Heuristic — Sub-path Tab Resolution
       if (action.path.startsWith("/")) {
         const parts = action.path.split("/").filter(Boolean);
         if (parts.length > 1) {
@@ -528,7 +538,7 @@ async function executeAction(action: BrowserAction): Promise<void> {
         }
       }
 
-      // Fallback: If it's a relative path without slashes (e.g. "whatsapp"), it might be a tab name
+      // Step 4: Fallback — relative path might be a tab name
       if (!action.path.startsWith("/") && !action.path.includes("?")) {
         const tabBtn = findByText(action.path, "button, [role='tab'], a");
         if (tabBtn) {
@@ -537,21 +547,9 @@ async function executeAction(action: BrowserAction): Promise<void> {
         }
       }
 
-      // For Next.js/React Router, dispatch a custom event
-      const navEvent = new CustomEvent("insights-widget:navigate", {
-        detail: { path: action.path, tab: action.tab },
-        bubbles: true,
-        cancelable: true
-      });
-      const notCancelled = document.dispatchEvent(navEvent);
-
-      // Only fall back to location.href if the host app didn't preventDefault() the event
-      if (notCancelled) {
-        // If it's a relative path and wasn't found as a tab, it's safer to not navigate 
-        // to avoid appending garbage like `/inbox/whatsapp`.
-        if (action.path.startsWith("/")) {
-          window.location.href = action.path;
-        }
+      // Step 5: Last resort — hard navigate (only for absolute paths)
+      if (action.path.startsWith("/")) {
+        window.location.href = action.path;
       }
       break;
     }
